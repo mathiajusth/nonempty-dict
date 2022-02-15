@@ -3,7 +3,7 @@ module Dict.Nonempty exposing
     , singleton, fromNonemptyList, fromList
     , insert, remove
     , toDict, toList, toNonemptyList
-    , get, head
+    , get, head, equal
     )
 
 {-| A dict that is guaranteed to have an entry in it.
@@ -31,7 +31,7 @@ module Dict.Nonempty exposing
 
 # Destruction
 
-@docs get, head
+@docs get, head, equal
 
 -}
 
@@ -42,7 +42,7 @@ import List.Nonempty as NonemptyList
 
 {-| A dict with at least one entry.
 The inner dict always contains all of the information. The inner tuple is a redundancy
-to ensure the nonemptiness
+to ensure the nonemptiness and doesn't affect equality of NonemptyDicts
 -}
 type NonemptyDict comparable v
     = NonemptyDict ( ( comparable, v ), Dict comparable v )
@@ -186,3 +186,12 @@ head (NonemptyDict ( guarantee, dictTail )) =
 get : comparable -> NonemptyDict comparable v -> Maybe v
 get k (NonemptyDict ( _, dictTail )) =
     Dict.get k dictTail
+
+
+{-| Equality on nonempty Dicts.
+We cannot use build in `==` as the guaranteed key-value pair
+doesn't matter for equality.
+-}
+equal : NonemptyDict comparable v -> NonemptyDict comparable v -> Bool
+equal nonemptyDictA nonemptyDictB =
+    toNonemptyList nonemptyDictA == toNonemptyList nonemptyDictB
