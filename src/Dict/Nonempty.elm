@@ -41,6 +41,8 @@ import List.Nonempty as NonemptyList
 
 
 {-| A dict with at least one entry.
+The inner dict always contains all of the information. The inner tuple is a redundancy
+to ensure the nonemptiness
 -}
 type NonemptyDict comparable v
     = NonemptyDict ( ( comparable, v ), Dict comparable v )
@@ -53,41 +55,41 @@ type NonemptyDict comparable v
 {-| Initiate a NonemptyDict out of k v pair
 -}
 singleton : comparable -> v -> NonemptyDict comparable v
-singleton headK headV =
+singleton guaranteedK guaranteedV =
     NonemptyDict
-        ( ( headK, headV ), Dict.empty )
+        ( ( guaranteedK, guaranteedV ), Dict.singleton guaranteedK guaranteedV )
 
 
-{-| Create a NonemptyDict out of a NonemptyList
+{-| Create a NonemptyDict out of a NonemptyList.
+Prefers last value if keys clash.
 -}
 fromNonemptyList : NonemptyList.Nonempty ( comparable, v ) -> NonemptyDict comparable v
-fromNonemptyList (NonemptyList.Nonempty head_ tail) =
+fromNonemptyList (NonemptyList.Nonempty ( guaranteedK, guaranteedV ) tail) =
     NonemptyDict
-        ( head_, Dict.fromList tail )
+        (let
+            dict : Dict comparable v
+            dict =
+                Dict.fromList (( guaranteedK, guaranteedV ) :: tail)
+         in
+         ( ( guaranteedK
+           , -- this is to ensure the same behaviour as in Dict.fromList i.e. the last entry is prefered when keys clash
+             Maybe.withDefault guaranteedV (Dict.get guaranteedK dict)
+           )
+         , dict
+         )
+        )
 
 
 {-| Create a NonemptyDict out of k v pair and a List of k v pairs.
-If there is a key clas it prefers the value provided explicitly in the first argument.
+Prefers value provided in the first argument if keys clash
 -}
 fromList : ( comparable, v ) -> List ( comparable, v ) -> NonemptyDict comparable v
-fromList pair list =
-    case NonemptyList.fromList list of
-        Nothing ->
-            NonemptyDict
-                ( pair, Dict.empty )
-
-        Just (NonemptyList.Nonempty listHead listTail) ->
-            if List.member pair list then
-                NonemptyDict
-                    ( listHead, Dict.fromList listTail )
-
-            else
-                NonemptyDict
-                    ( pair
-                    , Dict.fromList list
-                        -- remove the value from dict if there is key clash
-                        |> Dict.remove (Tuple.first pair)
-                    )
+fromList ( guaranteedK, guaranteedV ) list =
+    NonemptyDict
+        ( ( guaranteedK, guaranteedV )
+        , Dict.fromList (( guaranteedK, guaranteedV ) :: list)
+            |> Dict.insert guaranteedK guaranteedV
+        )
 
 
 
@@ -97,31 +99,44 @@ fromList pair list =
 {-| Same as Dict.insert
 -}
 insert : comparable -> v -> NonemptyDict comparable v -> NonemptyDict comparable v
-insert newK newV (NonemptyDict ( ( headK, headV ), dictTail )) =
-    if newK == headK then
-        NonemptyDict
-            ( ( newK, newV ), dictTail )
+insert newK newV (NonemptyDict ( ( guaranteedK, guaranteedV ), dictTail )) =
+    NonemptyDict
+        ( ( guaranteedK
+          , if guaranteedK == newK then
+                newV
 
-    else
-        NonemptyDict
-            ( ( headK, headV ), Dict.insert newK newV dictTail )
+            else
+                guaranteedV
+          )
+        , dictTail
+            |> Dict.insert newK newV
+        )
 
 
 {-| Same as Dict.remove but fails with Nothing if you remove the only entry that was left
 -}
 remove : comparable -> NonemptyDict comparable v -> Maybe (NonemptyDict comparable v)
-remove k (NonemptyDict ( ( headK, headV ), dictTail )) =
-    if k == headK then
-        dictTail
-            |> Dict.toList
-            |> List.uncons
-            |> (Maybe.map << Tuple.mapSecond) Dict.fromList
-            |> Maybe.map NonemptyDict
+remove k (NonemptyDict ( ( guaranteedK, guaranteedV ), dictTail )) =
+    let
+        newDict : Dict comparable v
+        newDict =
+            dictTail
+                |> Dict.remove k
+    in
+    if k /= guaranteedK then
+        Just (NonemptyDict ( ( guaranteedK, guaranteedV ), newDict ))
 
     else
-        ( ( headK, headV ), Dict.remove k dictTail )
-            |> NonemptyDict
-            |> Just
+        newDict
+            |> Dict.toList
+            |> List.head
+            |> Maybe.map
+                (\newHead ->
+                    NonemptyDict
+                        ( newHead
+                        , newDict
+                        )
+                )
 
 
 
@@ -131,22 +146,25 @@ remove k (NonemptyDict ( ( headK, headV ), dictTail )) =
 {-| Transform NonemptyDict into regular Dict
 -}
 toDict : NonemptyDict comparable v -> Dict comparable v
-toDict (NonemptyDict ( ( headK, headV ), dictTail )) =
-    Dict.insert headK headV dictTail
+toDict (NonemptyDict ( _, dictTail )) =
+    dictTail
 
 
 {-| Same as Dict.toList
 -}
 toList : NonemptyDict comparable v -> List ( comparable, v )
-toList (NonemptyDict ( headPair, dictTail )) =
-    headPair :: Dict.toList dictTail
+toList (NonemptyDict ( _, dictTail )) =
+    Dict.toList dictTail
 
 
 {-| Transform NonemptyDict into List.Nonempty.Nonempty
 -}
 toNonemptyList : NonemptyDict comparable v -> NonemptyList.Nonempty ( comparable, v )
-toNonemptyList (NonemptyDict ( headPair, dictTail )) =
-    NonemptyList.Nonempty headPair (Dict.toList dictTail)
+toNonemptyList (NonemptyDict ( guarantee, dictTail )) =
+    dictTail
+        |> Dict.toList
+        |> NonemptyList.fromList
+        |> Maybe.withDefault (NonemptyList.singleton guarantee)
 
 
 
@@ -156,25 +174,15 @@ toNonemptyList (NonemptyDict ( headPair, dictTail )) =
 {-| Get the key value pair corresponding to the lowest key
 -}
 head : NonemptyDict comparable v -> ( comparable, v )
-head (NonemptyDict ( ( headK, headV ), dictTail )) =
-    case List.head (Dict.toList dictTail) of
-        Just ( tailsHeadK, tailsHeadV ) ->
-            if headK <= tailsHeadK then
-                ( headK, headV )
-
-            else
-                ( tailsHeadK, tailsHeadV )
-
-        Nothing ->
-            ( headK, headV )
+head (NonemptyDict ( guarantee, dictTail )) =
+    dictTail
+        |> Dict.toList
+        |> List.head
+        |> Maybe.withDefault guarantee
 
 
 {-| Same as Dict.get
 -}
 get : comparable -> NonemptyDict comparable v -> Maybe v
-get k (NonemptyDict ( ( headK, headV ), dictTail )) =
-    if k == headK then
-        Just headV
-
-    else
-        Dict.get k dictTail
+get k (NonemptyDict ( _, dictTail )) =
+    Dict.get k dictTail
