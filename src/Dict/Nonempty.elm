@@ -3,7 +3,7 @@ module Dict.Nonempty exposing
     , singleton, fromNonemptyList, fromList
     , insert, remove
     , toDict, toList, toNonemptyList
-    , head, headPair, headKey
+    , head
     )
 
 {-| A dict that is guaranteed to have an entry in it.
@@ -42,8 +42,8 @@ import List.Nonempty as NonemptyList
 
 {-| A dict with at least one entry.
 -}
-type alias NonemptyDict k v =
-    ( ( k, v ), Dict k v )
+type NonemptyDict comparable v
+    = NonemptyDict ( ( comparable, v ), Dict comparable v )
 
 
 
@@ -54,14 +54,16 @@ type alias NonemptyDict k v =
 -}
 singleton : comparable -> v -> NonemptyDict comparable v
 singleton headK headV =
-    ( ( headK, headV ), Dict.empty )
+    NonemptyDict
+        ( ( headK, headV ), Dict.empty )
 
 
 {-| Create a NonemptyDict out of a NonemptyList
 -}
 fromNonemptyList : NonemptyList.Nonempty ( comparable, v ) -> NonemptyDict comparable v
 fromNonemptyList (NonemptyList.Nonempty head_ tail) =
-    ( head_, Dict.fromList tail )
+    NonemptyDict
+        ( head_, Dict.fromList tail )
 
 
 {-| Create a NonemptyDict out of k v pair and a List of k v pairs.
@@ -71,18 +73,21 @@ fromList : ( comparable, v ) -> List ( comparable, v ) -> NonemptyDict comparabl
 fromList pair list =
     case NonemptyList.fromList list of
         Nothing ->
-            ( pair, Dict.empty )
+            NonemptyDict
+                ( pair, Dict.empty )
 
         Just (NonemptyList.Nonempty listHead listTail) ->
             if List.member pair list then
-                ( listHead, Dict.fromList listTail )
+                NonemptyDict
+                    ( listHead, Dict.fromList listTail )
 
             else
-                ( pair
-                , Dict.fromList list
-                    -- remove the value from dict if there is key clash
-                    |> Dict.remove (Tuple.first pair)
-                )
+                NonemptyDict
+                    ( pair
+                    , Dict.fromList list
+                        -- remove the value from dict if there is key clash
+                        |> Dict.remove (Tuple.first pair)
+                    )
 
 
 
@@ -92,26 +97,31 @@ fromList pair list =
 {-| Same as Dict.insert
 -}
 insert : comparable -> v -> NonemptyDict comparable v -> NonemptyDict comparable v
-insert newK newV ( ( headK, headV ), dictTail ) =
+insert newK newV (NonemptyDict ( ( headK, headV ), dictTail )) =
     if newK == headK then
-        ( ( newK, newV ), dictTail )
+        NonemptyDict
+            ( ( newK, newV ), dictTail )
 
     else
-        ( ( headK, headV ), Dict.insert newK newV dictTail )
+        NonemptyDict
+            ( ( headK, headV ), Dict.insert newK newV dictTail )
 
 
 {-| Same as Dict.remove but fails with Nothing if you remove the only entry that was left
 -}
 remove : comparable -> NonemptyDict comparable v -> Maybe (NonemptyDict comparable v)
-remove k ( ( headK, headV ), dictTail ) =
+remove k (NonemptyDict ( ( headK, headV ), dictTail )) =
     if k == headK then
         dictTail
             |> Dict.toList
             |> List.uncons
             |> (Maybe.map << Tuple.mapSecond) Dict.fromList
+            |> Maybe.map NonemptyDict
 
     else
-        Just ( ( headK, headV ), Dict.remove k dictTail )
+        ( ( headK, headV ), Dict.remove k dictTail )
+            |> NonemptyDict
+            |> Just
 
 
 
@@ -121,71 +131,48 @@ remove k ( ( headK, headV ), dictTail ) =
 {-| Transform NonemptyDict into regular Dict
 -}
 toDict : NonemptyDict comparable v -> Dict comparable v
-toDict ( ( headK, headV ), dictTail ) =
+toDict (NonemptyDict ( ( headK, headV ), dictTail )) =
     Dict.insert headK headV dictTail
 
 
 {-| Same as Dict.toList
 -}
 toList : NonemptyDict comparable v -> List ( comparable, v )
-toList ( headPair_, dictTail ) =
-    headPair_ :: Dict.toList dictTail
+toList (NonemptyDict ( headPair, dictTail )) =
+    headPair :: Dict.toList dictTail
 
 
 {-| Transform NonemptyDict into List.Nonempty.Nonempty
 -}
 toNonemptyList : NonemptyDict comparable v -> NonemptyList.Nonempty ( comparable, v )
-toNonemptyList ( headPair_, dictTail ) =
-    NonemptyList.Nonempty headPair_ (Dict.toList dictTail)
+toNonemptyList (NonemptyDict ( headPair, dictTail )) =
+    NonemptyList.Nonempty headPair (Dict.toList dictTail)
 
 
 
 ---- DESTRUCTION (loss of information as opposed to Transformation)
 
 
-{-| Get the value corresponding to the lowest key
+{-| Get the key value pair corresponding to the lowest key
 -}
-head : NonemptyDict comparable v -> v
-head ( ( headK, headV ), dictTail ) =
+head : NonemptyDict comparable v -> ( comparable, v )
+head (NonemptyDict ( ( headK, headV ), dictTail )) =
     case List.head (Dict.toList dictTail) of
-        Just ( k, v ) ->
-            if headK <= k then
-                headV
+        Just ( tailsHeadK, tailsHeadV ) ->
+            if headK <= tailsHeadK then
+                ( headK, headV )
 
             else
-                v
+                ( tailsHeadK, tailsHeadV )
 
         Nothing ->
-            headV
-
-
-{-| Get the key value pair with the lowest key
--}
-headPair : NonemptyDict comparable v -> ( comparable, v )
-headPair =
-    Tuple.first
-
-
-{-| Get the lowest key
--}
-headKey : NonemptyDict comparable v -> comparable
-headKey ( ( headK, _ ), dictTail ) =
-    case List.head (Dict.toList dictTail) of
-        Just ( k, _ ) ->
-            if headK <= k then
-                headK
-
-            else
-                k
-
-        Nothing ->
-            headK
+            ( headK, headV )
 
 
 {-| Same as Dict.get
 -}
 get : comparable -> NonemptyDict comparable v -> Maybe v
-get k ( ( headK, headV ), dictTail ) =
+get k (NonemptyDict ( ( headK, headV ), dictTail )) =
     if k == headK then
         Just headV
 
