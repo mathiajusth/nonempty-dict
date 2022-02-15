@@ -3,7 +3,7 @@ module Dict.Nonempty exposing
     , singleton, fromNonemptyList, fromList
     , insert, remove
     , toDict, toList, toNonemptyList
-    , head
+    , get, head
     )
 
 {-| A dict that is guaranteed to have an entry in it.
@@ -31,7 +31,7 @@ module Dict.Nonempty exposing
 
 # Destruction
 
-@docs get, head, headPair, headKey
+@docs get, head
 
 -}
 
